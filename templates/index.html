@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Cyber-PDF</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <!-- Cropper.js CSS -->
+  <link href="https://unpkg.com/cropperjs@1.6.1/dist/cropper.min.css" rel="stylesheet">
+  <style>
+    body {
+      background: linear-gradient(135deg, #f5f7fa 0%, #e4edf9 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 20px;
+      margin: 0;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+    .main-card {
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.08);
+      padding: 30px;
+      width: 100%;
+      max-width: 700px;
+      text-align: center;
+    }
+    .logo {
+      font-size: 2.4rem;
+      font-weight: 700;
+      color: #2563eb;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      color: #64748b;
+      margin-bottom: 25px;
+      font-size: 1.05rem;
+    }
+    .drop-area {
+      border: 2px dashed #cbd5e1;
+      border-radius: 12px;
+      padding: 40px 20px;
+      background: #f8fafc;
+      margin-bottom: 25px;
+      transition: all 0.3s;
+    }
+    .page-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      justify-content: center;
+      margin-top: 20px;
+    }
+    .page-item {
+      position: relative;
+      width: 160px;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+      cursor: move;
+    }
+    .page-item img {
+      width: 100%;
+      display: block;
+    }
+    .page-controls {
+      position: absolute;
+      bottom: 8px;
+      right: 8px;
+      display: flex;
+      gap: 6px;
+    }
+    .control-btn {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.85);
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    .control-btn:hover {
+      background: white;
+    }
+    .delete-btn { color: #ef4444; }
+    .crop-btn { color: #3b82f6; }
+    .btn {
+      padding: 8px 20px;
+      border-radius: 8px;
+      font-weight: 600;
+    }
+    .btn-outline-primary {
+      border-color: #3b82f6;
+      color: #3b82f6;
+    }
+    .btn-success {
+      background: #0d9488;
+      border: none;
+      margin-top: 15px;
+    }
+    #downloadLink {
+      display: block !important;
+      margin: 20px auto 0 !important;
+    }
+  </style>
+</head>
+<body>
+  <div class="main-card">
+    <div class="logo">Cyber-PDF</div>
+    <p class="subtitle">Rasmlar → PDF • PDF → Sahifalarga • Tartiblash & Kesish</p>
+
+    <div class="drop-area" id="dropArea">
+      <p>📁 PDF yoki rasmlar (JPG/PNG) ni shu yerga torting</p>
+      <button class="btn btn-outline-primary mt-3" onclick="document.getElementById('fileInput').click()">
+        Fayl tanlang
+      </button>
+      <input type="file" id="fileInput" multiple accept=".pdf,.jpg,.jpeg,.png" style="display:none;">
+    </div>
+
+    <div id="pagesContainer" style="display:none;">
+      <h6 class="mt-4">Sahifalarni tartiblang: tortib almashtiring ↓</h6>
+      <div id="pageGrid" class="page-grid"></div>
+      <button id="applyBtn" class="btn btn-success">✅ PDF yaratish</button>
+    </div>
+
+    <a id="downloadLink" class="btn btn-success" style="display:none;">📥 Yuklab olish</a>
+  </div>
+
+  <!-- Kutubxonalar -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+  <script src="https://unpkg.com/cropperjs@1.6.1/dist/cropper.min.js"></script>
+
+  <script>
+    let pageOrder = [];
+    let crops = {};
+
+    document.getElementById('fileInput').addEventListener('change', uploadFiles);
+    const dropArea = document.getElementById('dropArea');
+    dropArea.addEventListener('dragover', e => {
+      e.preventDefault();
+      dropArea.style.borderColor = '#3b82f6';
+      dropArea.style.background = '#eff6ff';
+    });
+    dropArea.addEventListener('dragleave', () => {
+      dropArea.style.borderColor = '#cbd5e1';
+      dropArea.style.background = '#f8fafc';
+    });
+    dropArea.addEventListener('drop', e => {
+      e.preventDefault();
+      dropArea.style.borderColor = '#cbd5e1';
+      dropArea.style.background = '#f8fafc';
+      if (e.dataTransfer.files.length) uploadFiles({target: {files: e.dataTransfer.files}});
+    });
+
+    function uploadFiles(e) {
+      const files = e.target.files;
+      if (!files.length) return;
+      const formData = new FormData();
+      for (let f of files) formData.append('files', f);
+      fetch('/upload', { method: 'POST', body: formData })
+        .then(r => r.json())
+        .then(data => {
+          if (data.error) { alert(data.error); return; }
+          renderPages(data.pages);
+        });
+    }
+
+    function renderPages(pageUrls) {
+      pageOrder = pageUrls.map(u => u.split('/').pop());
+      const grid = document.getElementById('pageGrid');
+      grid.innerHTML = '';
+      pageUrls.forEach(url => {
+        const div = document.createElement('div');
+        div.className = 'page-item';
+        div.dataset.page = url.split('/').pop();
+        const img = document.createElement('img');
+        img.src = url + '?v=' + Date.now();
+        div.appendChild(img);
+
+        // Boshqaruv tugmalari
+        const controls = document.createElement('div');
+        controls.className = 'page-controls';
+
+        // Delete
+        const deleteBtn = document.createElement('button');
+        deleteBtn.className = 'control-btn delete-btn';
+        deleteBtn.innerHTML = '🗑️';
+        deleteBtn.onclick = (e) => {
+          e.stopPropagation();
+          const pageName = div.dataset.page;
+          const idx = pageOrder.indexOf(pageName);
+          if (idx !== -1) {
+            pageOrder.splice(idx, 1);
+            delete crops[pageName];
+          }
+          div.remove();
+        };
+        controls.appendChild(deleteBtn);
+
+        // Crop
+        const cropBtn = document.createElement('button');
+        cropBtn.className = 'control-btn crop-btn';
+        cropBtn.innerHTML = '✂️';
+        cropBtn.onclick = (e) => {
+          e.stopPropagation();
+          openCropper(img, div.dataset.page);
+        };
+        controls.appendChild(cropBtn);
+
+        // Logotip (pastki chap burchak)
+        const logo = document.createElement('div');
+        logo.style.position = 'absolute';
+        logo.style.bottom = '4px';
+        logo.style.left = '4px';
+        logo.style.fontSize = '10px';
+        logo.style.color = '#2563eb';
+        logo.style.fontWeight = 'bold';
+        logo.innerText = 'Cyber';
+        div.appendChild(logo);
+
+        div.appendChild(controls);
+        grid.appendChild(div);
+      });
+
+      Sortable.create(grid, {
+        animation: 150,
+        onUpdate: () => {
+          pageOrder = Array.from(grid.children).map(el => el.dataset.page);
+        }
+      });
+
+      document.getElementById('pagesContainer').style.display = 'block';
+    }
+
+    function openCropper(imgEl, pageName) {
+      const modal = document.createElement('div');
+      modal.style.cssText = `
+        position: fixed;
+        top: 0; left: 0;
+        width: 100%; height: 100%;
+        background: rgba(0,0,0,0.85);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 2000;
+      `;
+      
+      const container = document.createElement('div');
+      container.style.padding = '20px';
+      container.style.maxWidth = '90vw';
+      container.style.maxHeight = '90vh';
+
+      const cropImg = document.createElement('img');
+      cropImg.src = imgEl.src.split('?')[0] + '?t=' + Date.now();
+      cropImg.style.maxWidth = '100%';
+      cropImg.style.maxHeight = '70vh';
+      cropImg.style.display = 'block';
+      cropImg.crossOrigin = 'anonymous';
+
+      container.appendChild(cropImg);
+      modal.appendChild(container);
+      document.body.appendChild(modal);
+
+      let cropper;
+      try {
+        cropper = new Cropper(cropImg, {
+          viewMode: 1,
+          dragMode: 'crop',
+          autoCrop: true,
+          autoCropArea: 0.8,
+          responsive: true,
+          restore: true,
+          checkCrossOrigin: false,
+          background: true,
+          highlight: true,
+          cropBoxMovable: true,
+          cropBoxResizable: true
+        });
+      } catch (e) {
+        console.error("Cropper yaratishda xato:", e);
+        alert("Qirqish uslubi ishlamayapti. Iltimos, brauzerni yangilang.");
+        modal.remove();
+        return;
+      }
+
+      const btns = document.createElement('div');
+      btns.style.marginTop = '15px';
+      btns.style.textAlign = 'center';
+      btns.innerHTML = `
+        <button class="btn btn-success" id="applyCrop" style="margin-right:10px;">Kesish</button>
+        <button class="btn btn-secondary" id="cancelCrop">Bekor qilish</button>
+      `;
+      container.appendChild(btns);
+
+      document.getElementById('applyCrop').onclick = () => {
+        crops[pageName] = cropper.getData();
+        cropper.destroy();
+        modal.remove();
+      };
+
+      document.getElementById('cancelCrop').onclick = () => {
+        cropper.destroy();
+        modal.remove();
+      };
+    }
+
+    document.getElementById('applyBtn').onclick = () => {
+      fetch('/apply', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ order: pageOrder, crops: crops })
+      })
+      .then(r => r.json())
+      .then(data => {
+        const link = document.getElementById('downloadLink');
+        link.href = data.download_url;
+        link.style.display = 'block';
+      });
+    };
+  </script>
+</body>
+</html>
