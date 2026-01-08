@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+
+# Temp va uploads papkalari
+temp/
+uploads/
+
+# PDF fayllar
+*.pdf
+
+# VS Code
+.vscode/
+
+# Windows
+Thumbs.db
+Desktop.ini
